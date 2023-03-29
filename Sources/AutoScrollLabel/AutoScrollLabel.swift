@@ -1,4 +1,5 @@
 import UIKit
+import Combine
 
 public final class AutoScrollLabel: UIView {
     private let labelSpacing: CGFloat
@@ -7,6 +8,10 @@ public final class AutoScrollLabel: UIView {
     private let fadeRatio: Double
     private let font: UIFont
     private let textColor: UIColor
+
+    private let changeTextSubject = PassthroughSubject<Void, Never>()
+    private let layoutSubviewsSubject = PassthroughSubject<Void, Never>()
+    private var cancellables = Set<AnyCancellable>()
 
     private let scrollView: UIScrollView = {
         let scrollView = UIScrollView()
@@ -54,6 +59,16 @@ public final class AutoScrollLabel: UIView {
         addSubview(scrollView)
         scrollView.addSubview(firstLabel)
         scrollView.addSubview(secondLabel)
+
+        changeTextSubject.combineLatest(
+            layoutSubviewsSubject
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] (_, _) in
+            self?.updateLayout()
+            self?.setGradiantLayer()
+            self?.scrollLabelIfNeeded()
+        }.store(in: &cancellables)
     }
 
     public required init?(coder: NSCoder) {
@@ -62,8 +77,8 @@ public final class AutoScrollLabel: UIView {
 
     public override func layoutSubviews() {
         super.layoutSubviews()
-        updateLayout()
-        setGradiantLayer()
+        scrollView.frame = bounds
+        layoutSubviewsSubject.send(())
     }
 
     private var scrollEnabled: Bool {
@@ -71,9 +86,6 @@ public final class AutoScrollLabel: UIView {
     }
 
     private func updateLayout() {
-        scrollView.frame = bounds
-        scrollView.contentOffset = .zero
-
         if scrollEnabled {
             firstLabel.frame = CGRect(
                 origin: .zero,
@@ -106,19 +118,23 @@ public final class AutoScrollLabel: UIView {
     }
 
     private func setGradiantLayer() {
-        let transparent = UIColor(white: 0, alpha: 0).cgColor
-        let opaque = UIColor(white: 0, alpha: 1).cgColor
+        if scrollEnabled {
+            let transparent = UIColor(white: 0, alpha: 0).cgColor
+            let opaque = UIColor(white: 0, alpha: 1).cgColor
 
-        let maskLayer = CALayer()
-        maskLayer.frame = bounds
-        let gradientLayer = CAGradientLayer()
-        gradientLayer.frame = bounds
-        gradientLayer.colors = [transparent, opaque, opaque, transparent]
-        gradientLayer.startPoint = CGPoint(x: 0.0, y: 0.5)
-        gradientLayer.endPoint = CGPoint(x: 1.0, y: 0.5)
-        gradientLayer.locations = [0.0, NSNumber(floatLiteral: fadeRatio), NSNumber(floatLiteral: 1.0 - fadeRatio), 1.0]
-        maskLayer.addSublayer(gradientLayer)
-        layer.mask = maskLayer
+            let maskLayer = CALayer()
+            maskLayer.frame = bounds
+            let gradientLayer = CAGradientLayer()
+            gradientLayer.frame = bounds
+            gradientLayer.colors = [transparent, opaque, opaque, transparent]
+            gradientLayer.startPoint = CGPoint(x: 0.0, y: 0.5)
+            gradientLayer.endPoint = CGPoint(x: 1.0, y: 0.5)
+            gradientLayer.locations = [0.0, NSNumber(floatLiteral: fadeRatio), NSNumber(floatLiteral: 1.0 - fadeRatio), 1.0]
+            maskLayer.addSublayer(gradientLayer)
+            layer.mask = maskLayer
+        } else {
+            layer.mask = nil
+        }
     }
 
     private var currentAnimator: UIViewPropertyAnimator?
@@ -144,7 +160,6 @@ public final class AutoScrollLabel: UIView {
     public func change(text: String) {
         self.firstLabel.text = text
         self.secondLabel.text = text
-        self.updateLayout()
-        self.scrollLabelIfNeeded()
+        changeTextSubject.send(())
     }
 }
